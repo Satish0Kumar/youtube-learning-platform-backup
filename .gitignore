@@ -60,3 +60,7 @@ dist/
 
 # Jupyter Notebooks
 .ipynb_checkpoints/
+
+# Development containers
+.devcontainer/
+
