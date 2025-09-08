@@ -15,6 +15,24 @@ st.set_page_config(
     layout="wide"
 )
 
+
+
+import streamlit as st
+
+# Add this at the top of your app.py temporarily
+if st.button("🔧 Test API Key Access"):
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        st.success(f"✅ API Key loaded: {api_key[:10]}...{api_key[-4:]}")
+        st.write(f"Key length: {len(api_key)} characters")
+    except Exception as e:
+        st.error(f"❌ Failed to load API key: {str(e)}")
+
+
+
+
+
+
 # Initialize session state
 if 'transcript' not in st.session_state:
     st.session_state.transcript = ""
