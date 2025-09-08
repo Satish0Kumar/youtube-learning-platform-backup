@@ -1,29 +1,36 @@
-# 🎥 YouTube Transcript Generator
+# 🎥 YouTube Transcript Generator & AI Analyzer
 
-A powerful web application built with Streamlit that extracts transcripts from YouTube videos using existing captions or AI-powered speech recognition.
+An intelligent web application that extracts transcripts from YouTube videos and provides AI-powered concept explanations using Google Gemini models.
 
 ## ✨ Features
 
-- 🚀 **Instant Caption Extraction**: Retrieves existing YouTube captions in seconds
-- 🤖 **AI Transcription**: Uses OpenAI Whisper for videos without captions
-- 📱 **User-Friendly Interface**: Clean, responsive Streamlit web interface
-- 📄 **Multiple Formats**: Download transcripts as TXT files
-- 🔧 **Flexible Models**: Choose from different Whisper model sizes
-- 🆓 **Completely Free**: No API keys or costs required
+### 🚀 Core Functionality
+- **Instant Caption Extraction**: Retrieves existing YouTube captions in seconds
+- **AI Transcription**: Uses OpenAI Whisper for videos without captions
+- **Smart Concept Analysis**: AI-powered explanations of key concepts (not just summaries)
+- **Multi-Model Fallback**: Automatic switching between 4 Gemini AI models
+- **Professional Downloads**: Save transcripts and analysis as formatted text files
 
-## 🛠️ Technologies Used
+### 🤖 AI Analysis Features
+- **Core Concept Identification**: Finds main themes and ideas
+- **Detailed Explanations**: Goes beyond basic summarization
+- **Practical Insights**: Actionable takeaways and applications
+- **Structured Output**: Organized sections for easy reading
+- **Reliable Processing**: Smart fallback across multiple AI models
 
-- **Frontend**: Streamlit
-- **Speech Recognition**: OpenAI Whisper
-- **Caption Extraction**: youtube-transcript-api
-- **Audio Processing**: yt-dlp
-- **Language**: Python 3.9+
+### 🛠️ Technical Features
+- **Flexible Model Selection**: Choose Whisper model size for speed vs accuracy
+- **Session Management**: Maintains state across interactions
+- **Error Handling**: Graceful fallbacks and user-friendly error messages
+- **Debug Tools**: Technical information for troubleshooting
+- **Responsive Design**: Works on desktop and mobile devices
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Python 3.9 or higher
-- Git (optional, for cloning)
+- Internet connection
+- Google Gemini API key (free)
 
 ### Installation
 

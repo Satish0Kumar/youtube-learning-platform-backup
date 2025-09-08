@@ -10,31 +10,53 @@ __pycache__/
 *.pyd
 .Python
 
+# Streamlit Secrets (IMPORTANT!)
+.streamlit/secrets.toml
+.streamlit/
+
 # Temporary Files
 *.tmp
 *.temp
 temp/
 assets/temp_*
 
-# OS Files
+# Audio Files (temporary downloads)
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+
+# Model Files (if downloaded locally)
+*.pt
+*.bin
+*.model
+
+# Operating System Files
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # IDE Files
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # Logs
 *.log
+logs/
 
-# Audio files (temporary downloads)
-*.wav
-*.mp3
-*.m4a
-*.ogg
+# Test Files
+test_*.py
+*_test.py
+tests/
 
-# Model files (if downloaded locally)
-*.pt
-*.bin
+# Build/Distribution
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
