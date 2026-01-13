@@ -1,513 +1,428 @@
-import streamlit as st
-import whisper
-import yt_dlp
-import tempfile
-import os
-import re
-from youtube_transcript_api import YouTubeTranscriptApi
-from datetime import datetime
-from gemini_service import GeminiConceptExplainer
+"""
+AI-Powered YouTube Learning Platform
+Final Year Project - Complete Implementation
+"""
 
-# Configure the Streamlit page
+import streamlit as st
+from dotenv import load_dotenv
+import os
+import sys
+
+# Add paths
+sys.path.append(os.path.dirname(__file__))
+
+from utils.transcript_extractor import TranscriptExtractor
+from services.notes_generator import NotesGenerator
+from services.quiz_generator import QuizGenerator
+from utils.pdf_generator import PDFGenerator
+
+# Load environment
+load_dotenv()
+
+# Page config
 st.set_page_config(
-    page_title="YouTube Transcript Generator & AI Analyzer",
-    page_icon="📝",
-    layout="wide"
+    page_title="AI YouTube Learning Platform",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-
-
-import streamlit as st
-
-# Add this at the top of your app.py temporarily
-if st.button("🔧 Test API Key Access"):
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        st.success(f"✅ API Key loaded: {api_key[:10]}...{api_key[-4:]}")
-        st.write(f"Key length: {len(api_key)} characters")
-    except Exception as e:
-        st.error(f"❌ Failed to load API key: {str(e)}")
-
-
-
-
-
+# Custom CSS
+st.markdown("""
+    <style>
+    .main {
+        padding: 2rem;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3.5em;
+        font-weight: bold;
+        font-size: 16px;
+    }
+    .notes-container {
+        padding: 2rem;
+        border-radius: 10px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        line-height: 1.8;
+    }
+    .quiz-question {
+        padding: 1.5rem;
+        border-radius: 8px;
+        background-color: #fff;
+        border: 2px solid #e9ecef;
+        margin-bottom: 1.5rem;
+    }
+    .correct-answer {
+        background-color: #d4edda;
+        border-color: #28a745;
+    }
+    .incorrect-answer {
+        background-color: #f8d7da;
+        border-color: #dc3545;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Initialize session state
+if 'page' not in st.session_state:
+    st.session_state.page = 'home'
 if 'transcript' not in st.session_state:
-    st.session_state.transcript = ""
-if 'explanation' not in st.session_state:
-    st.session_state.explanation = ""
-if 'model_used' not in st.session_state:
-    st.session_state.model_used = ""
-if 'video_title' not in st.session_state:
-    st.session_state.video_title = ""
+    st.session_state.transcript = None
+if 'video_id' not in st.session_state:
+    st.session_state.video_id = None
+if 'video_url' not in st.session_state:
+    st.session_state.video_url = None
+if 'notes' not in st.session_state:
+    st.session_state.notes = None
+if 'quiz_data' not in st.session_state:
+    st.session_state.quiz_data = None
+if 'user_answers' not in st.session_state:
+    st.session_state.user_answers = {}
+if 'quiz_submitted' not in st.session_state:
+    st.session_state.quiz_submitted = False
 
-# Title and description
-st.title("🎥 YouTube Transcript Generator & AI Analyzer")
-st.write("Extract transcripts from YouTube videos and get AI-powered concept explanations!")
+# Header
+st.title("🎓 AI-Powered YouTube Learning Platform")
+st.markdown("### Transform YouTube Videos into Study Material & Quizzes")
 
-def extract_video_id(url):
-    """Extract video ID from YouTube URL"""
-    # Remove any extra parameters first
-    url = url.split('&')[0].split('?')[0] if '?' in url else url
+# Sidebar Navigation
+with st.sidebar:
+    st.header("📍 Navigation")
     
-    patterns = [
-        r'(?:v=|/)([0-9A-Za-z_-]{11}).*',
-        r'youtu\.be/([0-9A-Za-z_-]{11})',
-        r'embed/([0-9A-Za-z_-]{11})'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            video_id = match.group(1)
-            if len(video_id) == 11:
-                return video_id
-    return None
-
-@st.cache_resource
-def load_whisper_model(model_size="base"):
-    """Load Whisper model (cached for better performance)"""
-    return whisper.load_model(model_size)
-
-@st.cache_resource
-def init_gemini_service():
-    """Initialize Gemini AI service (cached)"""
-    try:
-        return GeminiConceptExplainer()
-    except Exception as e:
-        st.error(f"Failed to initialize Gemini AI: {str(e)}")
-        return None
-
-def get_video_info(video_url):
-    """Get video title and info using yt-dlp"""
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(video_url, download=False)
-            return info.get('title', 'Unknown Video'), info.get('duration', 0)
-    except Exception:
-        return 'Unknown Video', 0
-
-def get_existing_transcript(video_url):
-    """Get existing captions using NEW API format"""
-    try:
-        video_id = extract_video_id(video_url)
-        if not video_id:
-            return None, "Invalid URL"
-        
-        # NEW API: Create instance and use fetch()
-        ytt_api = YouTubeTranscriptApi()
-        fetched_transcript = ytt_api.fetch(video_id)
-        
-        # Convert to raw data and format
-        raw_data = fetched_transcript.to_raw_data()
-        formatted_text = '\n'.join([entry['text'] for entry in raw_data])
-        return formatted_text, "captions"
-        
-    except Exception as e:
-        return None, f"No captions: {str(e)}"
-
-def download_audio(video_url, output_path):
-    """Download audio from YouTube video for Whisper processing"""
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': output_path,
-        'extractaudio': True,
-        'audioformat': 'wav',
-        'quiet': True,
-    }
+    if st.button("🏠 Home", use_container_width=True):
+        st.session_state.page = 'home'
+        st.rerun()
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
-        return True
-    except Exception as e:
-        st.error(f"Audio download failed: {str(e)}")
-        return False
-
-def transcribe_with_whisper(audio_path, model_size="base"):
-    """Transcribe audio using Whisper"""
-    try:
-        model = load_whisper_model(model_size)
-        result = model.transcribe(audio_path)
-        return result["text"], "whisper"
-    except Exception as e:
-        return None, f"Transcription failed: {str(e)}"
-
-# Sidebar Configuration
-st.sidebar.title("⚙️ Settings")
-
-# Whisper model selection
-whisper_model = st.sidebar.selectbox(
-    "Whisper Model Size",
-    ["tiny", "base", "small", "medium"],
-    index=1,
-    help="Larger models are more accurate but slower"
-)
-
-# Add AI model info in sidebar
-with st.sidebar.expander("🤖 AI Analysis Info"):
-    gemini_service = init_gemini_service()
-    if gemini_service:
-        st.markdown(gemini_service.get_model_status())
+    if st.session_state.transcript:
+        if st.button("📝 AI Notes", use_container_width=True):
+            st.session_state.page = 'notes'
+            st.rerun()
+        
+        if st.button("🧪 AI Quiz", use_container_width=True):
+            st.session_state.page = 'quiz_setup'
+            st.rerun()
+    
+    st.markdown("---")
+    st.markdown("**Status:**")
+    if st.session_state.transcript:
+        st.success("✅ Transcript Loaded")
+        st.info(f"📊 {len(st.session_state.transcript.split())} words")
     else:
-        st.warning("AI analysis unavailable - check API key configuration")
+        st.info("⏳ No transcript yet")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Model Performance:**")
-st.sidebar.markdown("- **tiny**: Fastest (~1min per 10min video)")
-st.sidebar.markdown("- **base**: Recommended balance")
-st.sidebar.markdown("- **small**: Better accuracy")
-st.sidebar.markdown("- **medium**: Best accuracy (slower)")
+st.markdown("---")
 
-# User input section
-video_url = st.text_input(
-    "🔗 YouTube Video URL",
-    placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/...",
-    help="Paste any YouTube video URL here"
-)
-
-# Show video info if URL is provided
-if video_url and extract_video_id(video_url):
-    try:
-        title, duration = get_video_info(video_url)
-        st.info(f"📺 **Video**: {title} ({duration//60}:{duration%60:02d})")
-    except:
-        pass
-
-# Main processing button
-if st.button("🚀 Generate Transcript", type="primary"):
-    if video_url:
-        # Create progress indicators
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        try:
-            # Get video info
-            title, duration = get_video_info(video_url)
-            st.session_state.video_title = title
-            
-            # Step 1: Try existing captions
-            status_text.text("🔍 Checking for existing captions...")
-            progress_bar.progress(20)
-            
-            transcript, method = get_existing_transcript(video_url)
-            
-            if transcript and method == "captions":
-                status_text.text("✅ Found existing captions!")
-                progress_bar.progress(100)
-                
-                # Store in session state
-                st.session_state.transcript = transcript
-                st.session_state.explanation = ""  # Reset explanation
-                st.session_state.model_used = ""
-                
+# ==================== HOME PAGE ====================
+if st.session_state.page == 'home':
+    st.subheader("📹 Enter YouTube Video URL")
+    
+    youtube_url = st.text_input(
+        "Paste YouTube URL here:",
+        placeholder="https://www.youtube.com/watch?v=...",
+        key="url_input"
+    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔍 Extract Transcript", type="primary", use_container_width=True):
+            if not youtube_url:
+                st.error("⚠️ Please enter a YouTube URL")
             else:
-                # Step 2: Use Whisper for videos without captions
-                status_text.text("🎵 No captions found. Downloading audio...")
-                progress_bar.progress(40)
+                is_valid, message = TranscriptExtractor.validate_url(youtube_url)
                 
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    audio_path = os.path.join(temp_dir, "audio.%(ext)s")
-                    
-                    if download_audio(video_url, audio_path):
-                        status_text.text("🤖 Transcribing with Whisper AI...")
-                        progress_bar.progress(70)
-                        
-                        # Find the actual downloaded file
-                        audio_files = [f for f in os.listdir(temp_dir) if f.startswith("audio")]
-                        if audio_files:
-                            actual_audio_path = os.path.join(temp_dir, audio_files[0])
-                            transcript, method = transcribe_with_whisper(actual_audio_path, whisper_model)
-                            
-                            if transcript:
-                                status_text.text("✅ AI transcription completed!")
-                                progress_bar.progress(100)
-                                
-                                # Store in session state
-                                st.session_state.transcript = transcript
-                                st.session_state.explanation = ""
-                                st.session_state.model_used = ""
-                                
-                            else:
-                                st.error("❌ Failed to transcribe audio")
-                                transcript = None
-                        else:
-                            st.error("❌ Audio file not found after download")
-                            transcript = None
-                    else:
-                        st.error("❌ Failed to download video audio")
-                        transcript = None
-                
-        except Exception as e:
-            st.error(f"❌ An error occurred: {str(e)}")
-            transcript = None
-        finally:
-            progress_bar.empty()
-            status_text.empty()
-            
-    else:
-        st.error("⚠️ Please enter a YouTube URL")
-        transcript = None
-
-# Display results if transcript exists
-if st.session_state.transcript:
-    transcript = st.session_state.transcript
-    
-    st.success("🎉 Transcript generated successfully!")
-    
-    # Create enhanced tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📄 Transcript", "🧠 AI Analysis", "💾 Download", "🔧 Debug"])
-    
-    with tab1:
-        st.subheader("📄 Video Transcript")
-        st.text_area("Transcript Content", transcript, height=400, label_visibility="collapsed")
-        
-        # Enhanced Concept Explanation Button
-        st.markdown("---")
-        st.markdown("### 🧠 Want to understand the key concepts?")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            if st.button("🧠 Explain Core Concepts", type="secondary", use_container_width=True):
-                gemini_service = init_gemini_service()
-                if gemini_service:
-                    with st.spinner("🤖 AI is analyzing the video concepts..."):
-                        explanation, model_used = gemini_service.explain_concepts(transcript)
-                        st.session_state.explanation = explanation
-                        st.session_state.model_used = model_used
-                        st.rerun()
+                if not is_valid:
+                    st.error(f"❌ {message}")
                 else:
-                    st.error("AI service unavailable. Please check configuration.")
-        
-        # Preview of what AI analysis provides
-        with st.expander("💡 What you'll get from AI Analysis"):
-            st.markdown("""
-            **AI-Powered Concept Explanation includes:**
-            - 🎯 **Core Concept**: Main theme identification  
-            - 📚 **Key Concepts**: Detailed explanations (not just summaries)
-            - 🔍 **Important Insights**: Deeper understanding points
-            - 💡 **Practical Takeaways**: Actionable insights
-            - 🎓 **Why This Matters**: Broader significance and relevance
-            """)
-    
-    with tab2:
-        st.subheader("🧠 AI-Powered Concept Analysis")
-        
-        if st.session_state.explanation:
-            # Show which model was used
-            if st.session_state.model_used and st.session_state.model_used != "none":
-                st.success(f"✨ Analysis completed using **{st.session_state.model_used}**")
-            
-            # Display explanation in a nice format
-            st.markdown(st.session_state.explanation)
-            
-            # Action buttons
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔄 Regenerate Analysis", type="secondary"):
-                    gemini_service = init_gemini_service()
-                    if gemini_service:
-                        with st.spinner("🤖 Regenerating analysis..."):
-                            explanation, model_used = gemini_service.explain_concepts(transcript)
-                            st.session_state.explanation = explanation
-                            st.session_state.model_used = model_used
-                            st.rerun()
+                    video_id = TranscriptExtractor.extract_video_id(youtube_url)
+                    st.info(f"🎬 Video ID: `{video_id}`")
+                    
+                    with st.spinner("🔄 Extracting transcript..."):
+                        transcript, error = TranscriptExtractor.get_transcript(video_id)
+                    
+                    if transcript:
+                        st.session_state.transcript = transcript
+                        st.session_state.video_id = video_id
+                        st.session_state.video_url = youtube_url
+                        
+                        st.success("✅ Transcript extracted successfully!")
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Words", len(transcript.split()))
+                        with col2:
+                            st.metric("Characters", len(transcript))
+                        with col3:
+                            st.metric("Duration", f"~{len(transcript.split())/150:.0f} min")
+                        
+                        st.info("👈 **Use sidebar to generate Notes or Quiz!**")
                     else:
-                        st.error("AI service unavailable")
-            
-            with col2:
-                # Copy explanation to clipboard (informational)
-                st.info("💡 Use the Download tab to save the full analysis")
-                
-        else:
-            st.info("👈 Click **'Explain Core Concepts'** in the Transcript tab to get AI analysis")
-            
-            st.markdown("### 🚀 What makes our AI analysis special:")
-            st.markdown("""
-            - **🎯 Concept-Focused**: Identifies and explains key ideas, not just summarization
-            - **📚 Educational**: Makes complex topics accessible and understandable  
-            - **💡 Insightful**: Provides deeper analysis and practical takeaways
-            - **🔄 Reliable**: Smart fallback across 4 different Gemini models
-            - **⚡ Fast**: Optimized prompts for quick, quality results
-            """)
-            
-            # Model information
-            gemini_service = init_gemini_service()
-            if gemini_service:
-                st.markdown("### 🤖 Available AI Models:")
-                st.markdown("""
-                1. **Gemini 2.5 Flash-Lite** - 1000 requests/day (Primary)
-                2. **Gemini 2.5 Flash** - 250 requests/day (Fallback)  
-                3. **Gemini 2.0 Flash** - 200 requests/day (Fallback)
-                4. **Gemini 2.5 Pro** - 100 requests/day (Final fallback)
-                """)
+                        st.error(f"❌ {error}")
     
-    with tab3:
-        st.subheader("💾 Download Options")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 📄 Transcript Only")
-            video_id = extract_video_id(video_url) if video_url else "transcript"
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    with col2:
+        if st.button("🔄 Clear All", use_container_width=True):
+            st.session_state.transcript = None
+            st.session_state.video_id = None
+            st.session_state.notes = None
+            st.session_state.quiz_data = None
+            st.rerun()
+    
+    # Display transcript if available
+    if st.session_state.transcript:
+        st.markdown("---")
+        with st.expander("📄 View Transcript", expanded=False):
+            st.text_area("", st.session_state.transcript, height=300, disabled=True)
+
+# ==================== NOTES PAGE ====================
+elif st.session_state.page == 'notes':
+    st.subheader("📝 AI-Generated Notes")
+    
+    if not st.session_state.transcript:
+        st.warning("⚠️ Please extract transcript first!")
+        if st.button("← Go to Home"):
+            st.session_state.page = 'home'
+            st.rerun()
+    else:
+        if not st.session_state.notes:
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("✨ Generate AI Notes", type="primary", use_container_width=True):
+                    with st.spinner("🤖 AI is generating comprehensive notes... This may take 30-60 seconds..."):
+                        notes_gen = NotesGenerator()
+                        notes, error = notes_gen.generate_notes(st.session_state.transcript)
+                    
+                    if notes:
+                        st.session_state.notes = notes
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {error}")
+                        st.info("💡 Try again or check your API key")
+        else:
+            st.success("✅ Notes generated successfully!")
             
-            st.download_button(
-                "📥 Download Transcript (TXT)",
-                transcript,
-                file_name=f"transcript_{video_id}_{timestamp}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
-        
-        with col2:
-            st.markdown("#### 📊 Complete Analysis")
-            if st.session_state.explanation and st.session_state.explanation != "":
-                # Create combined analysis file
-                combined_content = f"""YouTube Video Analysis Report
-{'='*50}
-
-VIDEO INFORMATION:
-Title: {st.session_state.video_title}
-URL: {video_url}
-Analysis Date: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-AI Model Used: {st.session_state.model_used}
-
-TRANSCRIPT:
-{'-'*20}
-{transcript}
-
-AI CONCEPT ANALYSIS:
-{'-'*20}
-{st.session_state.explanation}
-
-{'='*50}
-Generated by: YouTube Transcript Generator & AI Analyzer
-"""
-                
+            # Display notes
+            st.markdown('<div class="notes-container">', unsafe_allow_html=True)
+            st.markdown(st.session_state.notes)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Download options
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 1, 1])
+            
+            with col1:
                 st.download_button(
-                    "📥 Download Full Analysis (TXT)", 
-                    combined_content,
-                    file_name=f"analysis_{video_id}_{timestamp}.txt",
+                    label="📥 Download as TXT",
+                    data=st.session_state.notes,
+                    file_name=f"notes_{st.session_state.video_id}.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
-            else:
-                st.info("Generate AI analysis first to download the complete report")
+            
+            with col2:
+                try:
+                    pdf_buffer = PDFGenerator.generate_notes_pdf(
+                        st.session_state.notes,
+                        st.session_state.video_url,
+                        st.session_state.video_id
+                    )
+                    
+                    st.download_button(
+                        label="📄 Download as PDF",
+                        data=pdf_buffer,
+                        file_name=f"notes_{st.session_state.video_id}.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"PDF generation error: {str(e)}")
+            
+            with col3:
+                if st.button("🔄 Regenerate Notes", use_container_width=True):
+                    st.session_state.notes = None
+                    st.rerun()
+
+# ==================== QUIZ SETUP PAGE ====================
+elif st.session_state.page == 'quiz_setup':
+    st.subheader("🧪 AI Quiz Setup")
     
-    with tab4:
-        st.subheader("🔧 Debug Information")
-        
-        video_id = extract_video_id(video_url) if video_url else None
+    if not st.session_state.transcript:
+        st.warning("⚠️ Please extract transcript first!")
+        if st.button("← Go to Home"):
+            st.session_state.page = 'home'
+            st.rerun()
+    else:
+        st.info("⚙️ Configure your quiz settings below:")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**Video Information:**")
-            st.write(f"**Title:** {st.session_state.video_title}")
-            st.write(f"**Video ID:** {video_id}")
-            st.write(f"**URL Valid:** {'✅' if video_id else '❌'}")
-            
-        with col2:
-            st.markdown("**Processing Information:**")
-            st.write(f"**Transcript Length:** {len(transcript):,} characters")
-            st.write(f"**Word Count:** ~{len(transcript.split()):,} words")
-            if st.session_state.model_used:
-                st.write(f"**AI Model Used:** {st.session_state.model_used}")
-            
-        if st.session_state.explanation:
-            st.markdown("**AI Analysis Stats:**")
-            st.write(f"**Analysis Length:** {len(st.session_state.explanation):,} characters")
-            st.write(f"**Analysis Available:** ✅")
+            num_questions = st.selectbox(
+                "📊 Number of Questions",
+                [5, 10, 15, 20],
+                index=0
+            )
         
-        # Technical details
-        with st.expander("🔍 Technical Details"):
-            st.json({
-                "video_id": video_id,
-                "transcript_chars": len(transcript),
-                "transcript_words": len(transcript.split()),
-                "ai_analysis_available": bool(st.session_state.explanation),
-                "ai_model_used": st.session_state.model_used,
-                "whisper_model": whisper_model,
-                "timestamp": datetime.now().isoformat()
-            })
+        with col2:
+            difficulty = st.selectbox(
+                "⚡ Difficulty Level",
+                ["Easy", "Medium", "Hard"],
+                index=1
+            )
+        
+        st.markdown("---")
+        
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🚀 Generate Quiz", type="primary", use_container_width=True):
+                with st.spinner("🤖 AI is creating your quiz... This may take 30-60 seconds..."):
+                    quiz_gen = QuizGenerator()
+                    quiz_data = quiz_gen.generate_quiz(
+                        st.session_state.transcript,
+                        num_questions,
+                        difficulty
+                    )
+                
+                if quiz_data:
+                    st.session_state.quiz_data = quiz_data
+                    st.session_state.quiz_submitted = False
+                    st.session_state.user_answers = {}
+                    st.session_state.page = 'quiz'
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to generate quiz. Please try again.")
+                    st.info("💡 Try with fewer questions or check your API key")
 
-# Enhanced help sections
-with st.expander("📖 Complete Usage Guide"):
-    st.markdown("""
-    ### 🚀 Basic Workflow:
-    1. **Paste YouTube URL** → Get transcript (captions or AI-generated)
-    2. **Click "Explain Core Concepts"** → Get intelligent AI analysis  
-    3. **Download** transcript, analysis, or both
+# ==================== QUIZ PAGE ====================
+elif st.session_state.page == 'quiz':
+    st.subheader("🧪 Take Your Quiz")
     
-    ### 🧠 AI Analysis Features:
-    - **🎯 Concept Identification**: Finds main themes and ideas
-    - **📚 Detailed Explanations**: Goes beyond summarization
-    - **💡 Practical Insights**: Actionable takeaways and applications
-    - **🔄 Smart Fallback**: Automatically uses the best available AI model
-    - **⚡ Fast Processing**: Optimized for speed and quality
-    
-    ### 🤖 AI Model System:
-    - **Primary**: Gemini 2.5 Flash-Lite (1000/day)
-    - **Fallback 1**: Gemini 2.5 Flash (250/day)
-    - **Fallback 2**: Gemini 2.0 Flash (200/day)  
-    - **Final**: Gemini 2.5 Pro (100/day)
-    
-    ### 📊 What Makes This Special:
-    - Combines **transcript extraction** with **intelligent analysis**
-    - Provides **concept explanations**, not just summaries
-    - **Reliable processing** with multiple AI model fallbacks
-    - **Professional outputs** ready for research or learning
-    """)
+    if not st.session_state.quiz_data:
+        st.warning("⚠️ No quiz data found!")
+        if st.button("← Back to Setup"):
+            st.session_state.page = 'quiz_setup'
+            st.rerun()
+    else:
+        quiz = st.session_state.quiz_data
+        questions = quiz.get('questions', [])
+        
+        if not st.session_state.quiz_submitted:
+            # Display questions
+            st.info(f"📝 Answer all {len(questions)} questions and submit when ready!")
+            st.markdown("---")
+            
+            for i, q in enumerate(questions):
+                st.markdown(f'<div class="quiz-question">', unsafe_allow_html=True)
+                st.markdown(f"### Question {q['id']}")
+                st.markdown(f"**{q['question']}**")
+                
+                if q['type'] == 'mcq':
+                    answer = st.radio(
+                        "Select your answer:",
+                        q['options'],
+                        key=f"q_{q['id']}",
+                        index=None
+                    )
+                    if answer:
+                        st.session_state.user_answers[q['id']] = answer
+                else:
+                    answer = st.text_area(
+                        "Your answer:",
+                        key=f"q_{q['id']}",
+                        height=100,
+                        placeholder="Type your answer here..."
+                    )
+                    if answer:
+                        st.session_state.user_answers[q['id']] = answer
+                
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("")
+            
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("✅ Submit Quiz", type="primary", use_container_width=True):
+                    if len(st.session_state.user_answers) < len(questions):
+                        st.warning(f"⚠️ Please answer all questions! ({len(st.session_state.user_answers)}/{len(questions)} answered)")
+                    else:
+                        st.session_state.quiz_submitted = True
+                        st.rerun()
+        
+        else:
+            # Show results
+            st.success("🎉 Quiz Submitted! Here are your results:")
+            st.markdown("---")
+            
+            correct_count = 0
+            total_questions = len(questions)
+            
+            for q in questions:
+                user_ans = st.session_state.user_answers.get(q['id'], '')
+                is_correct = QuizGenerator.evaluate_answer(
+                    user_ans,
+                    q['correct_answer'],
+                    q['type']
+                )
+                
+                if is_correct:
+                    correct_count += 1
+                
+                # Display question with result
+                css_class = "correct-answer" if is_correct else "incorrect-answer"
+                st.markdown(f'<div class="quiz-question {css_class}">', unsafe_allow_html=True)
+                
+                if is_correct:
+                    st.success(f"✅ Question {q['id']}: Correct!")
+                else:
+                    st.error(f"❌ Question {q['id']}: Incorrect")
+                
+                st.markdown(f"**{q['question']}**")
+                st.info(f"**Your Answer:** {user_ans}")
+                st.info(f"**Correct Answer:** {q['correct_answer']}")
+                st.markdown(f"**💡 Explanation:** {q['explanation']}")
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("")
+            
+            # Final score
+            st.markdown("---")
+            score_percent = (correct_count / total_questions) * 100
+            
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.markdown(f"## 🏆 Final Score: {correct_count}/{total_questions}")
+                st.progress(score_percent / 100)
+                st.markdown(f"### {score_percent:.1f}%")
+            
+            if score_percent >= 80:
+                st.balloons()
+                st.success("🌟 Excellent work! You have mastered this topic!")
+            elif score_percent >= 60:
+                st.info("👍 Good job! Review the explanations to improve further!")
+            else:
+                st.warning("📚 Keep studying! Review the notes and try again!")
+            
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Take Another Quiz", use_container_width=True):
+                    st.session_state.page = 'quiz_setup'
+                    st.session_state.quiz_data = None
+                    st.session_state.user_answers = {}
+                    st.session_state.quiz_submitted = False
+                    st.rerun()
+            with col2:
+                if st.button("🏠 Back to Home", use_container_width=True):
+                    st.session_state.page = 'home'
+                    st.rerun()
 
-with st.expander("🔧 Troubleshooting"):
-    st.markdown("""
-    ### Common Issues & Solutions:
-    
-    **Transcript Generation:**
-    - **Slow processing**: Try smaller Whisper model (tiny/base)
-    - **Download fails**: Video may be private/restricted
-    - **Memory errors**: Use 'tiny' model for very long videos
-    - **No captions found**: App automatically uses AI transcription
-    
-    **AI Analysis:**
-    - **Analysis fails**: App tries multiple models automatically
-    - **"Quota exceeded"**: System switches to next available model
-    - **Empty analysis**: Check if transcript is long enough (>50 characters)
-    
-    **General:**
-    - **App running slow**: Clear browser cache and refresh
-    - **Download issues**: Try right-click → Save As
-    - **URL not working**: Ensure it's a valid YouTube URL
-    """)
-
-# Footer with enhanced information
+# Footer
 st.markdown("---")
-st.markdown(
-    """
-    <div style='text-align: center; color: #666;'>
-        <p>🔥 <strong>Enhanced YouTube Analysis Platform</strong></p>
-        <p>💡 Powered by Streamlit + OpenAI Whisper + Google Gemini AI</p>
-        <p>🚀 Transcript Generation + Intelligent Concept Analysis</p>
-        <p>🆓 Completely Free • 🔒 No Data Stored • ⚡ Fast Processing</p>
+st.markdown("""
+    <div style='text-align: center; color: #666; padding: 20px;'>
+        <p><strong>🎓 AI-Powered YouTube Learning Platform</strong></p>
+        <p>Final Year Project 2025-26</p>
+        <p>Powered by Streamlit + Google Gemini AI + YouTube Transcript API</p>
     </div>
-    """, 
-    unsafe_allow_html=True
-)
-
-# Usage statistics (optional - you can remove this if not needed)
-if st.session_state.transcript:
-    st.markdown(
-        f"""
-        <div style='text-align: center; color: #888; font-size: 0.8em; margin-top: 20px;'>
-            Session Stats: {len(st.session_state.transcript.split())} words transcribed
-            {f"• AI analysis completed with {st.session_state.model_used}" if st.session_state.explanation else ""}
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+""", unsafe_allow_html=True)
