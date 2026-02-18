@@ -46,6 +46,103 @@ class TranscriptExtractor:
         return True, "Valid URL"
     
     @staticmethod
+    def get_video_metadata_simple(video_id: str) -> tuple:
+        """
+        Simple metadata using only YouTube thumbnail URL
+        This ALWAYS works - no API calls needed
+        """
+        try:
+            # These URLs always work for any valid video
+            thumbnail = f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+            
+            metadata = {
+                'title': f'Video ID: {video_id}',
+                'thumbnail': thumbnail,
+                'duration': 'Click Extract to get details',
+                'channel': 'Loading...',
+                'views': '--',
+                'upload_date': '--'
+            }
+            
+            return metadata, None
+            
+        except Exception as e:
+            return None, str(e)
+    @staticmethod
+    def get_video_metadata(video_id):
+        """Get video metadata like title, channel, views, etc."""
+        try:
+            # Method 1: Try YouTube oEmbed API
+            url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+            
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Check if title is valid
+                title = data.get('title')
+                if title and title.strip():
+                    metadata = {
+                        'title': title,
+                        'channel': data.get('author_name', 'Unknown'),
+                        'thumbnail': data.get('thumbnail_url', f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"),
+                        'duration': 'N/A',
+                        'views': 'N/A',
+                        'upload_date': 'Unknown'
+                    }
+                    return metadata, None
+            
+            # Method 2: Try scraping the page title
+            page_url = f"https://www.youtube.com/watch?v={video_id}"
+            page_response = requests.get(page_url, timeout=10)
+            
+            if page_response.status_code == 200:
+                # Extract title from page HTML
+                import re
+                title_match = re.search(r'<title>(.*?)</title>', page_response.text)
+                
+                if title_match:
+                    # YouTube titles are in format: "Video Title - YouTube"
+                    full_title = title_match.group(1)
+                    # Remove " - YouTube" suffix
+                    clean_title = full_title.replace(' - YouTube', '').strip()
+                    
+                    if clean_title and clean_title != 'YouTube':
+                        metadata = {
+                            'title': clean_title,
+                            'channel': 'Unknown',
+                            'thumbnail': f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+                            'duration': 'N/A',
+                            'views': 'N/A',
+                            'upload_date': 'Unknown'
+                        }
+                        return metadata, None
+            
+            # Fallback: Return basic metadata
+            return {
+                'title': f"YouTube Video ({video_id})",
+                'channel': 'Unknown',
+                'thumbnail': f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+                'duration': 'N/A',
+                'views': 'N/A',
+                'upload_date': 'Unknown'
+            }, None
+                
+        except Exception as e:
+            # Return basic fallback
+            return {
+                'title': f"YouTube Video ({video_id})",
+                'channel': 'Unknown',
+                'thumbnail': f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
+                'duration': 'N/A',
+                'views': 'N/A',
+                'upload_date': 'Unknown'
+            }, None
+
+
+
+    @staticmethod
     def get_transcript(video_id: str) -> Tuple[Optional[str], Optional[str]]:
         """
         Get transcript - EXACT method from working reference project
