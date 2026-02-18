@@ -1,12 +1,14 @@
 """
 AI Notes Generator Service
-EXACT COPY from working reference project
+Updated to use google.genai (new SDK)
 """
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import streamlit as st
 import time
 from typing import Tuple, Optional
+
 
 class NotesGenerator:
     """Smart Gemini AI service with automatic model fallback"""
@@ -20,19 +22,21 @@ class NotesGenerator:
             import os
             self.api_key = os.getenv("GEMINI_API_KEY")
         
-        genai.configure(api_key=self.api_key)
+        # ✅ NEW: Use client-based initialization
+        self.client = genai.Client(api_key=self.api_key)
         
-        # Model priority list (best to fallback) - EXACT from reference
+        # Model priority list (best to fallback)
         self.models = [
             {"name": "gemini-2.5-flash-lite", "limit": "1000/day"},
-            {"name": "gemini-2.5-flash", "limit": "250/day"},
-            {"name": "gemini-2.0-flash", "limit": "200/day"},
-            {"name": "gemini-2.5-pro", "limit": "100/day"}
+            {"name": "gemini-2.5-flash",      "limit": "250/day"},
+            {"name": "gemini-2.0-flash",       "limit": "200/day"},
+            {"name": "gemini-2.5-pro",         "limit": "100/day"}
         ]
     
     def create_notes_prompt(self, transcript: str) -> str:
         """Create structured prompt for notes generation"""
         return f"""You are an expert educational content creator. Generate comprehensive, well-structured study notes from this video transcript.
+
 
 **Instructions:**
 - DO NOT simply summarize or repeat the transcript
@@ -42,22 +46,29 @@ class NotesGenerator:
 - FOCUS on the "why" and "how" behind the concepts
 - HIGHLIGHT key takeaways and practical implications
 
+
 **Transcript:**
 {transcript[:4000]}
 
+
 **Please provide your analysis in this structure:**
+
 
 ## 🎯 Core Concept
 [Main idea/theme in 1-2 sentences]
 
+
 ## 📚 Key Concepts Explained
 [Detailed explanation of main concepts - not summary]
+
 
 ## 🔍 Important Insights
 [Key insights and deeper understanding points]
 
+
 ## 💡 Practical Takeaways
 [What viewers should remember/apply]
+
 
 ## 🎓 Why This Matters
 [Broader significance and relevance]
@@ -76,20 +87,18 @@ class NotesGenerator:
         # Try each model with fallback
         for i, model_info in enumerate(self.models):
             try:
-                st.info(f"🤖 Analyzing with {model_info['name']}... ({model_info['limit']})")
+                st.info(f"🤖 AI Engine processing your content...")
                 
-                # Initialize model
-                model = genai.GenerativeModel(model_info['name'])
-                
-                # Generate notes
-                response = model.generate_content(
-                    prompt,
-                    generation_config={
-                        'temperature': 0.7,
-                        'top_p': 0.8,
-                        'top_k': 40,
-                        'max_output_tokens': 1500,
-                    }
+                # ✅ NEW: Use client.models.generate_content()
+                response = self.client.models.generate_content(
+                    model=model_info['name'],
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.7,
+                        top_p=0.8,
+                        top_k=40,
+                        max_output_tokens=1500,
+                    )
                 )
                 
                 if response and response.text:
@@ -101,15 +110,15 @@ class NotesGenerator:
                 # Handle specific quota errors
                 if "quota" in error_msg.lower() or "limit" in error_msg.lower():
                     st.warning(f"⚠️ {model_info['name']} quota exceeded, trying next model...")
+                    time.sleep(1)
                     continue
                 elif "api" in error_msg.lower():
                     st.warning(f"⚠️ API error with {model_info['name']}, trying next model...")
+                    time.sleep(1)
                     continue
                 else:
                     st.error(f"❌ Error with {model_info['name']}: {error_msg}")
+                    time.sleep(1)
                     continue
-                
-                # Brief delay between attempts
-                time.sleep(1)
         
         return None, "All Gemini models are currently unavailable. Please try again later."
