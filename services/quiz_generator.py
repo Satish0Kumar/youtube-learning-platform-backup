@@ -3,32 +3,35 @@ AI Quiz Generator Service - MCQ Only Version
 Production version without debug messages
 """
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import streamlit as st
 import time
 import json
 import re
 from typing import Optional, Dict
 
+
 class QuizGenerator:
     """Smart quiz generator - MCQ only"""
     
     def __init__(self):
-        """Initialize Gemini AI"""
+        """Initialize AI client"""
         try:
             self.api_key = st.secrets["GEMINI_API_KEY"]
         except:
             import os
             self.api_key = os.getenv("GEMINI_API_KEY")
         
-        genai.configure(api_key=self.api_key)
+        # ✅ NEW: Client-based initialization
+        self.client = genai.Client(api_key=self.api_key)
         
         # Model fallback list
         self.models = [
             {"name": "gemini-2.5-flash-lite", "limit": "1000/day", "max_tokens": 8192},
-            {"name": "gemini-2.5-flash", "limit": "250/day", "max_tokens": 8192},
-            {"name": "gemini-2.0-flash", "limit": "200/day", "max_tokens": 8192},
-            {"name": "gemini-2.5-pro", "limit": "100/day", "max_tokens": 8192}
+            {"name": "gemini-2.5-flash",      "limit": "250/day",  "max_tokens": 8192},
+            {"name": "gemini-2.0-flash",       "limit": "200/day",  "max_tokens": 8192},
+            {"name": "gemini-2.5-pro",         "limit": "100/day",  "max_tokens": 8192}
         ]
     
     def create_quiz_prompt(self, transcript: str, num_questions: int, difficulty: str) -> str:
@@ -45,14 +48,17 @@ class QuizGenerator:
         
         return f"""Create {num_questions} multiple choice questions from this transcript.
 
+
 Transcript:
 {transcript[:transcript_limit]}
+
 
 Return ONLY a JSON array. Format each question EXACTLY like this:
 [
   {{"id": 1, "type": "mcq", "question": "What is discussed?", "options": ["First", "Second", "Third", "Fourth"], "correct_answer": "First", "explanation": "Because..."}},
   {{"id": 2, "type": "mcq", "question": "Another question?", "options": ["A", "B", "C", "D"], "correct_answer": "A", "explanation": "Reason..."}}
 ]
+
 
 Requirements:
 - {num_questions} questions total
@@ -99,16 +105,17 @@ Requirements:
         for model_info in self.models:
             try:
                 with st.spinner(f"🤖 Generating {num_questions} questions..."):
-                    model = genai.GenerativeModel(
-                        model_info['name'],
-                        generation_config={
-                            'temperature': 0.7,
-                            'top_p': 0.95,
-                            'max_output_tokens': model_info['max_tokens'],
-                        }
-                    )
                     
-                    response = model.generate_content(prompt)
+                    # ✅ NEW: Use client.models.generate_content()
+                    response = self.client.models.generate_content(
+                        model=model_info['name'],
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.7,
+                            top_p=0.95,
+                            max_output_tokens=model_info['max_tokens'],
+                        )
+                    )
                     
                     if response and hasattr(response, 'text'):
                         response_text = f"{response.text}"
@@ -142,7 +149,6 @@ Requirements:
                             
                             for q in quiz_array:
                                 if isinstance(q, dict):
-                                    # Check all required fields
                                     has_all = all(k in q for k in ['question', 'options', 'correct_answer', 'explanation'])
                                     
                                     if has_all and q.get('type') == 'mcq':
@@ -153,7 +159,7 @@ Requirements:
                                                 valid_questions.append(q)
                             
                             if len(valid_questions) > 0:
-                                st.success(f"✅ Generated {len(valid_questions)} MCQ questions successfully!")
+                                st.success(f"✅ Generated {len(valid_questions)} questions successfully!")
                                 return {"questions": valid_questions}
                             else:
                                 continue
@@ -163,11 +169,11 @@ Requirements:
             except Exception as e:
                 error_msg = str(e).lower()
                 if "quota" in error_msg or "resource_exhausted" in error_msg or "429" in error_msg:
+                    time.sleep(1)
                     continue
                 else:
+                    time.sleep(1)
                     continue
-            
-            time.sleep(1)
         
         st.error("❌ Failed to generate quiz. Please try again with fewer questions.")
         return None
