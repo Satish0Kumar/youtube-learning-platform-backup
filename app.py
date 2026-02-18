@@ -666,7 +666,7 @@ if st.session_state.page == 'home':
                         st.error(f"❌ {error}")
 
     with col2:
-        if st.button("🔄 Clear All", use_container_width=True):
+        if st.button("🔄 Clear All", type="primary",use_container_width=True):
             st.session_state.transcript = None
             st.session_state.video_id = None
             st.session_state.notes = None
@@ -690,7 +690,7 @@ if st.session_state.page == 'home':
         st.info("👈 **Use sidebar to generate Notes or Quiz!**")
         st.markdown("---")
         with st.expander("📄 View Transcript", expanded=False):
-            st.text_area("", st.session_state.transcript, height=300, disabled=True)
+            st.text_area("Transcript Content", st.session_state.transcript, height=300, disabled=True, label_visibility="collapsed")
 
 
 
@@ -744,8 +744,10 @@ elif st.session_state.page == 'notes':
             col1, col2, col3 = st.columns(3, gap="large")
 
             with col1:
-                if st.button("📋 Copy All Notes", use_container_width=True, type="primary", key="copy_btn"):
-                    st.toast("✅ Notes copied to clipboard!", icon="✅")
+                # ✅ CHANGED: Copy button replaced with Regenerate button
+                if st.button("🔄 Regenerate Notes", use_container_width=True, type="primary", key="regen_btn"):
+                    st.session_state.notes = None
+                    st.rerun()
 
             with col2:
                 st.download_button(
@@ -778,7 +780,6 @@ elif st.session_state.page == 'notes':
                 except Exception as e:
                     st.error(f"PDF error: {str(e)}")
 
-            
             st.markdown("---")
             
             # Display notes with enhanced formatting
@@ -801,7 +802,7 @@ elif st.session_state.page == 'notes':
             st.markdown("---")
             col1, col2, col3 = st.columns([1, 1, 1])
             with col2:
-                if st.button("🏠 Back to Home", use_container_width=True):
+                if st.button("🏠 Back to Home",type="primary", use_container_width=True):
                     st.session_state.page = 'home'
                     st.rerun()
 
@@ -839,13 +840,13 @@ elif st.session_state.page == 'quiz_setup':
                     st.session_state.page = 'quiz'
                     st.rerun()
             with col2:
-                if st.button("🔁 Generate New Quiz", use_container_width=True, key="gen_new_btn"):
+                if st.button("🔁 Generate New Quiz", type="primary", use_container_width=True, key="gen_new_btn"):
                     st.session_state.quiz_data = None
                     st.session_state.quiz_submitted = False
                     st.session_state.user_answers = {}
                     st.rerun()
             with col3:
-                if st.button("🏠 Go to Home", use_container_width=True, key="home_from_quiz_btn"):
+                if st.button("🏠 Go to Home", type="primary", use_container_width=True, key="home_from_quiz_btn"):
                     st.session_state.page = 'home'
                     st.rerun()
 

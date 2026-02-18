@@ -14,24 +14,31 @@ class NotesGenerator:
     """Smart Gemini AI service with automatic model fallback"""
     
     def __init__(self):
-        """Initialize Gemini AI"""
-        # Try to get API key from Streamlit secrets first
+        # ✅ Try all possible key names in order
         try:
             self.api_key = st.secrets["GEMINI_API_KEY"]
         except:
             import os
-            self.api_key = os.getenv("GEMINI_API_KEY")
-        
-        # ✅ NEW: Use client-based initialization
+            # Try GEMINI_API_KEY first, then fallback to GOOGLE_API_KEY
+            self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        if not self.api_key:
+            st.error("❌ No API key found! Please set GEMINI_API_KEY in your .env file.")
+            return
+
         self.client = genai.Client(api_key=self.api_key)
+
         
         # Model priority list (best to fallback)
         self.models = [
-            {"name": "gemini-2.5-flash-lite", "limit": "1000/day"},
-            {"name": "gemini-2.5-flash",      "limit": "250/day"},
-            {"name": "gemini-2.0-flash",       "limit": "200/day"},
-            {"name": "gemini-2.5-pro",         "limit": "100/day"}
+            {"name": "gemini-2.5-flash-lite",  "limit": "1000/day", "max_tokens": 8192},  # ✅ Fastest, highest quota
+            {"name": "gemini-2.5-flash",       "limit": "250/day",  "max_tokens": 8192},  # ✅ Best performance
+            {"name": "gemini-2.0-flash-lite",  "limit": "1000/day", "max_tokens": 8192},  # ✅ Cost efficient
+            {"name": "gemini-2.0-flash",       "limit": "200/day",  "max_tokens": 8192},  # ✅ Fallback
+            {"name": "gemini-2.5-pro",         "limit": "100/day",  "max_tokens": 8192},  # ✅ Last resort
         ]
+
+
     
     def create_notes_prompt(self, transcript: str) -> str:
         """Create structured prompt for notes generation"""
@@ -121,4 +128,4 @@ class NotesGenerator:
                     time.sleep(1)
                     continue
         
-        return None, "All Gemini models are currently unavailable. Please try again later."
+        return None, "Daily AI quota exhausted. Please try again tomorrow or reduce content length."

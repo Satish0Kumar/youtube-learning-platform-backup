@@ -16,23 +16,30 @@ class QuizGenerator:
     """Smart quiz generator - MCQ only"""
     
     def __init__(self):
-        """Initialize AI client"""
+        # ✅ Try all possible key names in order
         try:
             self.api_key = st.secrets["GEMINI_API_KEY"]
         except:
             import os
-            self.api_key = os.getenv("GEMINI_API_KEY")
-        
-        # ✅ NEW: Client-based initialization
+            # Try GEMINI_API_KEY first, then fallback to GOOGLE_API_KEY
+            self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+        if not self.api_key:
+            st.error("❌ No API key found! Please set GEMINI_API_KEY in your .env file.")
+            return
+
         self.client = genai.Client(api_key=self.api_key)
+
         
         # Model fallback list
         self.models = [
-            {"name": "gemini-2.5-flash-lite", "limit": "1000/day", "max_tokens": 8192},
-            {"name": "gemini-2.5-flash",      "limit": "250/day",  "max_tokens": 8192},
-            {"name": "gemini-2.0-flash",       "limit": "200/day",  "max_tokens": 8192},
-            {"name": "gemini-2.5-pro",         "limit": "100/day",  "max_tokens": 8192}
+            {"name": "gemini-2.5-flash-lite",  "limit": "1000/day", "max_tokens": 8192},  # ✅ Fastest, highest quota
+            {"name": "gemini-2.5-flash",       "limit": "250/day",  "max_tokens": 8192},  # ✅ Best performance
+            {"name": "gemini-2.0-flash-lite",  "limit": "1000/day", "max_tokens": 8192},  # ✅ Cost efficient
+            {"name": "gemini-2.0-flash",       "limit": "200/day",  "max_tokens": 8192},  # ✅ Fallback
+            {"name": "gemini-2.5-pro",         "limit": "100/day",  "max_tokens": 8192},  # ✅ Last resort
         ]
+
     
     def create_quiz_prompt(self, transcript: str, num_questions: int, difficulty: str) -> str:
         """Create MCQ-only quiz prompt"""
