@@ -1112,14 +1112,14 @@ elif st.session_state.page == 'quiz':
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🔄 Take Another Quiz", use_container_width=True):
+                if st.button("🔄 Take Another Quiz", type="primary",use_container_width=True):
                     st.session_state.page = 'quiz_setup'
                     st.session_state.quiz_data = None
                     st.session_state.user_answers = {}
                     st.session_state.quiz_submitted = False
                     st.rerun()
             with col2:
-                if st.button("🏠 Back to Home", use_container_width=True):
+                if st.button("🏠 Back to Home", type="primary",use_container_width=True):
                     st.session_state.page = 'home'
                     st.rerun()
 
